@@ -1,0 +1,8 @@
+{
+  "name": "pldi",
+  "private": true,
+  "scripts": {
+    "link": "make build && mkdir -p \"$HOME/.local/bin\" && ln -sf \"$PWD/pldi\" \"$HOME/.local/bin/pldi\" && echo \"linked: $HOME/.local/bin/pldi -> $PWD/pldi\"",
+    "unlink": "rm -f \"$HOME/.local/bin/pldi\" && echo \"unlinked: $HOME/.local/bin/pldi\""
+  }
+}

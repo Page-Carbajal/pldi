@@ -33,7 +33,9 @@ type Result struct {
 type Options struct {
 	Timeout      time.Duration
 	PollEvery    time.Duration
-	Progress     io.Writer // optional; receives overwriting progress lines
+	Progress     io.Writer // optional; receives progress lines
+	Verbose      bool      // stream new remote stdout/stderr lines
+	Quiet        bool      // suppress step/status progress
 	DocumentName string
 }
 
@@ -93,9 +95,18 @@ func SendAndWait(ctx context.Context, api awsx.SSMAPI, instanceID, script string
 		return Result{}, fmt.Errorf("ssm send command: %w", err)
 	}
 	commandID := aws.ToString(sendOut.Command.CommandId)
+	if opts.Progress != nil && !opts.Quiet {
+		fmt.Fprintf(opts.Progress, "pldi: ssm command %s sent\n", commandID)
+	}
 
 	deadline := start.Add(opts.Timeout)
-	var lastSteps []string
+	var (
+		lastSteps      []string
+		lastStatus     string
+		lastStdoutLen  int
+		lastStderrLen  int
+		announcedSteps = map[string]bool{}
+	)
 	for {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -125,20 +136,27 @@ func SendAndWait(ctx context.Context, api awsx.SSMAPI, instanceID, script string
 		stderr := aws.ToString(inv.StandardErrorContent)
 		steps := ParseSteps(stdout)
 		lastSteps = steps
-		if opts.Progress != nil {
-			step := "waiting"
-			if len(steps) > 0 {
-				step = steps[len(steps)-1]
+		status := string(inv.Status)
+
+		if opts.Progress != nil && !opts.Quiet {
+			for _, step := range steps {
+				if !announcedSteps[step] {
+					announcedSteps[step] = true
+					fmt.Fprintf(opts.Progress, "pldi: remote step %s\n", step)
+				}
 			}
-			fmt.Fprintf(opts.Progress, "\rpldi: %s (status=%s)          ", step, inv.Status)
+			if status != lastStatus {
+				fmt.Fprintf(opts.Progress, "pldi: ssm status %s\n", status)
+				lastStatus = status
+			}
+			if opts.Verbose {
+				lastStdoutLen = writeDelta(opts.Progress, "remote-out", stdout, lastStdoutLen)
+				lastStderrLen = writeDelta(opts.Progress, "remote-err", stderr, lastStderrLen)
+			}
 		}
 
-		status := string(inv.Status)
 		switch inv.Status {
 		case types.CommandInvocationStatusSuccess:
-			if opts.Progress != nil {
-				fmt.Fprint(opts.Progress, "\n")
-			}
 			return Result{
 				CommandID:     commandID,
 				Stdout:        stdout,
@@ -153,9 +171,6 @@ func SendAndWait(ctx context.Context, api awsx.SSMAPI, instanceID, script string
 			types.CommandInvocationStatusTimedOut,
 			types.CommandInvocationStatusFailed,
 			types.CommandInvocationStatusCancelling:
-			if opts.Progress != nil {
-				fmt.Fprint(opts.Progress, "\n")
-			}
 			res := Result{
 				CommandID:     commandID,
 				Stdout:        stdout,
@@ -191,4 +206,18 @@ func ParseSteps(stdout string) []string {
 		}
 	}
 	return steps
+}
+
+func writeDelta(w io.Writer, label, content string, prevLen int) int {
+	if len(content) <= prevLen {
+		return prevLen
+	}
+	delta := content[prevLen:]
+	for _, line := range strings.Split(delta, "\n") {
+		if line == "" {
+			continue
+		}
+		fmt.Fprintf(w, "pldi: %s: %s\n", label, line)
+	}
+	return len(content)
 }

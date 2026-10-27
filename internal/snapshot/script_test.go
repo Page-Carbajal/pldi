@@ -23,6 +23,8 @@ func TestRenderRemoteScriptBasics(t *testing.T) {
 		"pldi:step dump",
 		"pldi:step zip",
 		"pldi:step upload",
+		"pldi:zip-summary",
+		"-rq",
 		"--defaults-extra-file",
 		"page-temp-backup",
 		"cache",
@@ -30,6 +32,30 @@ func TestRenderRemoteScriptBasics(t *testing.T) {
 		if !strings.Contains(script, want) {
 			t.Fatalf("script missing %q", want)
 		}
+	}
+}
+
+func TestRenderRemoteScriptVerboseZip(t *testing.T) {
+	quiet, err := RenderRemoteScript(ScriptParams{
+		Bucket: "b", Prefix: "p", WPRoot: "/bitnami/wordpress",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verbose, err := RenderRemoteScript(ScriptParams{
+		Bucket: "b", Prefix: "p", WPRoot: "/bitnami/wordpress", Verbose: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(quiet, "-rq") {
+		t.Fatalf("quiet script should use -rq: %s", quiet)
+	}
+	if strings.Contains(verbose, "-rq") {
+		t.Fatal("verbose script should not use -rq")
+	}
+	if !strings.Contains(verbose, `ZIP_ARGS=(-r "`) {
+		t.Fatalf("verbose script missing -r zip: %s", verbose)
 	}
 }
 

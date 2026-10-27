@@ -65,7 +65,14 @@ Table of `Name` and `Instance ID` (running only by default). `--all`, `--json`.
 
 ### `pldi ec2:wp-snapshot <instance-id|name>`
 
-Flags: `--bucket`, `--prefix`, `--wp-root`, `--out`, `--exclude` (repeatable), `--timeout`, `--force`, `--dry-run`.
+Flags: `--bucket`, `--prefix`, `--wp-root`, `--out`, `--exclude` (repeatable), `--timeout`, `--force`, `--dry-run`, `--verbose`/`-v`, `--quiet`/`-q`.
+
+Progress (stderr by default):
+
+- Phase banners (resolve, instance/prefix, SSM send, downloads)
+- Remote step markers and a zip summary (top-level dirs + file count)
+- `--verbose` / `-v` also streams remote stdout/stderr and lists zip contents
+- `--quiet` / `-q` suppresses progress (errors + final summary only)
 
 ## IAM
 

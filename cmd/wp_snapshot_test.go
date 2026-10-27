@@ -88,6 +88,19 @@ func TestWPSnapshotMissingArgAndDryRun(t *testing.T) {
 	}
 }
 
+func TestWPSnapshotVerboseQuietConflict(t *testing.T) {
+	app := testApp(t)
+	app.EC2 = snapTestEC2{}
+	root := NewRootCmd(app)
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"ec2:wp-snapshot", "i-abc", "--verbose", "--quiet", "--dry-run"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "cannot use --verbose and --quiet") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestWPSnapshotForceOverwrite(t *testing.T) {
 	app := testApp(t)
 	ssmAPI := &snapTestSSM{}

@@ -16,6 +16,7 @@ type ScriptParams struct {
 	Prefix  string
 	WPRoot  string
 	Exclude []string
+	Verbose bool
 }
 
 var remoteTmpl = template.Must(template.New("remote.sh.tmpl").ParseFS(remoteFS, "remote.sh.tmpl"))

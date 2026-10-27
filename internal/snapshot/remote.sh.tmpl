@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BUCKET={{printf "%q" .Bucket}}
+PREFIX={{printf "%q" .Prefix}}
+WP_ROOT={{printf "%q" .WPRoot}}
+{{if .Exclude}}
+EXCLUDE_ARGS=(
+{{- range .Exclude}}
+  {{printf "%q" .}}
+{{- end}}
+)
+{{else}}
+EXCLUDE_ARGS=()
+{{end}}
+
+WORKDIR="$(mktemp -d)"
+cleanup() { rm -rf "$WORKDIR"; }
+trap cleanup EXIT
+
+echo "pldi:step preflight"
+
+if ! command -v zip >/dev/null 2>&1; then
+  echo "zip is not installed on the instance" >&2
+  exit 1
+fi
+if ! command -v aws >/dev/null 2>&1; then
+  echo "aws CLI is not installed on the instance" >&2
+  exit 1
+fi
+if ! command -v php >/dev/null 2>&1; then
+  echo "php is not installed on the instance (needed to parse wp-config.php)" >&2
+  exit 1
+fi
+
+WP_CONFIG="${WP_ROOT}/wp-config.php"
+if [[ ! -f "$WP_CONFIG" ]]; then
+  echo "wp-config.php not found at ${WP_CONFIG}" >&2
+  exit 1
+fi
+
+# Read define('KEY', 'value') / define("KEY", "value") without including wp-config.php.
+pldi_read_db_const() {
+  local key="$1"
+  # Intentional single-quoted PHP program so the shell does not expand it.
+  # shellcheck disable=SC2016
+  php -r '
+    $key = $argv[1];
+    $src = file_get_contents($argv[2]);
+    if ($src === false) {
+      fwrite(STDERR, "failed to read wp-config\n");
+      exit(1);
+    }
+    $pattern = "/define\\s*\\(\\s*[\\x27\\x22]" . preg_quote($key, "/") . "[\\x27\\x22]\\s*,\\s*([\\x27\\x22])((?:\\\\.|(?!\\1).)*)\\1\\s*\\)/s";
+    if (!preg_match($pattern, $src, $m)) {
+      fwrite(STDERR, "define for {$key} not found\n");
+      exit(1);
+    }
+    $val = stripcslashes($m[2]);
+    echo $val;
+  ' "$key" "$WP_CONFIG"
+}
+
+echo "pldi:step parse-config"
+DB_NAME="$(pldi_read_db_const DB_NAME)"
+DB_USER="$(pldi_read_db_const DB_USER)"
+DB_PASSWORD="$(pldi_read_db_const DB_PASSWORD)"
+DB_HOST_RAW="$(pldi_read_db_const DB_HOST)"
+
+DB_HOST="$DB_HOST_RAW"
+DB_PORT="3306"
+if [[ "$DB_HOST_RAW" == *:* ]]; then
+  DB_HOST="${DB_HOST_RAW%%:*}"
+  DB_PORT="${DB_HOST_RAW##*:}"
+fi
+
+DEFAULTS_FILE="${WORKDIR}/my.cnf"
+umask 077
+{
+  printf '[client]\n'
+  printf 'user=%s\n' "$DB_USER"
+  printf 'password=%s\n' "$DB_PASSWORD"
+  printf 'host=%s\n' "$DB_HOST"
+  printf 'port=%s\n' "$DB_PORT"
+} > "$DEFAULTS_FILE"
+chmod 600 "$DEFAULTS_FILE"
+unset DB_PASSWORD
+
+DUMP_BIN=""
+if [[ -x /opt/bitnami/mariadb/bin/mariadb-dump ]]; then
+  DUMP_BIN=/opt/bitnami/mariadb/bin/mariadb-dump
+elif command -v mariadb-dump >/dev/null 2>&1; then
+  DUMP_BIN="$(command -v mariadb-dump)"
+elif command -v mysqldump >/dev/null 2>&1; then
+  DUMP_BIN="$(command -v mysqldump)"
+else
+  echo "mariadb-dump/mysqldump not found on the instance" >&2
+  exit 1
+fi
+
+echo "pldi:step dump"
+"$DUMP_BIN" --defaults-extra-file="$DEFAULTS_FILE" \
+  --single-transaction --quick --default-character-set=utf8mb4 \
+  "$DB_NAME" > "${WORKDIR}/db.sql"
+rm -f "$DEFAULTS_FILE"
+
+echo "pldi:step zip"
+ZIP_ARGS=(-rq "${WORKDIR}/content.zip" wp-content)
+if ((${#EXCLUDE_ARGS[@]})); then
+  for ex in "${EXCLUDE_ARGS[@]}"; do
+    ZIP_ARGS+=(-x "wp-content/${ex}/*" "wp-content/${ex}")
+  done
+fi
+(
+  cd "$WP_ROOT"
+  zip "${ZIP_ARGS[@]}"
+)
+
+echo "pldi:step upload"
+aws s3 cp "${WORKDIR}/content.zip" "s3://${BUCKET}/${PREFIX}/content.zip"
+aws s3 cp "${WORKDIR}/db.sql" "s3://${BUCKET}/${PREFIX}/db.sql"
+
+CONTENT_SIZE="$(wc -c < "${WORKDIR}/content.zip" | tr -d ' ')"
+DB_SIZE="$(wc -c < "${WORKDIR}/db.sql" | tr -d ' ')"
+echo "pldi:step done"
+echo "pldi:size content.zip=${CONTENT_SIZE}"
+echo "pldi:size db.sql=${DB_SIZE}"

@@ -1,1 +1,24 @@
+# Binaries
+/pldi
+/dist/
+*.exe
+
+# Config / secrets (examples are committed separately)
+.env
+pldi.yaml
+.pldi.yaml
+
+# Local planning / agent
 local-docs/
+AGENTS.md
+CLAUDE.md
+.claude/
+.agents/
+
+# Go / IDE
+*.test
+coverage.out
+.idea/
+.vscode/
+*.swp
+.DS_Store

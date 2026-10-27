@@ -24,10 +24,15 @@ func TestRenderRemoteScriptBasics(t *testing.T) {
 		"pldi:step zip",
 		"pldi:step upload",
 		"pldi:zip-summary",
-		"-rq",
+		"pldi:zip-exclude",
+		"find \"${FIND_ARGS[@]}\"",
+		"zip -rq",
+		"-@",
+		`-path "wp-content/${ex}" -prune`,
+		`"cache"`,
+		`"updraft"`,
 		"--defaults-extra-file",
 		"page-temp-backup",
-		"cache",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("script missing %q", want)
@@ -48,14 +53,14 @@ func TestRenderRemoteScriptVerboseZip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(quiet, "-rq") {
-		t.Fatalf("quiet script should use -rq: %s", quiet)
+	if !strings.Contains(quiet, "zip -rq") {
+		t.Fatalf("quiet script should use zip -rq: %s", quiet)
 	}
-	if strings.Contains(verbose, "-rq") {
-		t.Fatal("verbose script should not use -rq")
+	if strings.Contains(verbose, "zip -rq") {
+		t.Fatal("verbose script should not use zip -rq")
 	}
-	if !strings.Contains(verbose, `ZIP_ARGS=(-r "`) {
-		t.Fatalf("verbose script missing -r zip: %s", verbose)
+	if !strings.Contains(verbose, `zip -r "`) {
+		t.Fatalf("verbose script missing zip -r: %s", verbose)
 	}
 }
 

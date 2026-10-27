@@ -105,7 +105,33 @@ echo "pldi:step dump"
 rm -f "$DEFAULTS_FILE"
 
 echo "pldi:step zip"
+FIND_EXCLUDES=()
+if ((${#EXCLUDE_ARGS[@]})); then
+  for ex in "${EXCLUDE_ARGS[@]}"; do
+    FIND_EXCLUDES+=(-path "wp-content/${ex}" -prune -o)
+  done
+fi
+(
+  cd "$WP_ROOT"
+  echo "pldi:zip-summary top-level:"
+  if [[ -d wp-content ]]; then
+    # shellcheck disable=SC2012
+    ls -1 wp-content | while read -r entry; do
+      echo "pldi:zip-summary dir ${entry}"
+    done
+  fi
+  if ((${#FIND_EXCLUDES[@]})); then
+    FILE_COUNT="$(find wp-content "${FIND_EXCLUDES[@]}" -type f -print 2>/dev/null | wc -l | tr -d ' ')"
+  else
+    FILE_COUNT="$(find wp-content -type f -print 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+  echo "pldi:zip-summary files=${FILE_COUNT}"
+)
+{{if .Verbose}}
+ZIP_ARGS=(-r "${WORKDIR}/content.zip" wp-content)
+{{else}}
 ZIP_ARGS=(-rq "${WORKDIR}/content.zip" wp-content)
+{{end}}
 if ((${#EXCLUDE_ARGS[@]})); then
   for ex in "${EXCLUDE_ARGS[@]}"; do
     ZIP_ARGS+=(-x "wp-content/${ex}/*" "wp-content/${ex}")

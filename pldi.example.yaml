@@ -1,0 +1,12 @@
+# Copy to pldi.yaml or .pldi.yaml in your project root.
+# Do not commit real secrets; AWS credentials stay in the standard AWS chain.
+
+profile: default
+region: us-east-1
+bucket: page-temp-backup
+wp_root: /bitnami/wordpress
+out: .
+timeout: 30m
+exclude:
+  - cache
+  - updraft

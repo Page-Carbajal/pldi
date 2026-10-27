@@ -1,6 +1,7 @@
 package ssmrun
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -151,5 +152,95 @@ func TestParseSteps(t *testing.T) {
 	got := ParseSteps("noise\npldi:step dump\npldi:step zip\n")
 	if len(got) != 2 || got[0] != "dump" || got[1] != "zip" {
 		t.Fatalf("%v", got)
+	}
+}
+
+func TestSendAndWaitNewlineProgress(t *testing.T) {
+	api := &fakeSSM{
+		invocations: []*ssm.GetCommandInvocationOutput{
+			{
+				Status:                types.CommandInvocationStatusInProgress,
+				StandardOutputContent: aws.String("pldi:step dump\n"),
+			},
+			{
+				Status:                types.CommandInvocationStatusSuccess,
+				StandardOutputContent: aws.String("pldi:step dump\npldi:step zip\n"),
+			},
+		},
+	}
+	var buf bytes.Buffer
+	_, err := SendAndWait(context.Background(), api, "i-1", "echo", Options{
+		PollEvery: time.Millisecond,
+		Timeout:   time.Second,
+		Progress:  &buf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "\r") {
+		t.Fatalf("expected newline progress, got CR: %q", out)
+	}
+	for _, want := range []string{
+		"pldi: ssm command cmd-1 sent",
+		"pldi: remote step dump",
+		"pldi: remote step zip",
+		"pldi: ssm status",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestSendAndWaitVerboseStreamsDeltas(t *testing.T) {
+	api := &fakeSSM{
+		invocations: []*ssm.GetCommandInvocationOutput{
+			{
+				Status:                types.CommandInvocationStatusInProgress,
+				StandardOutputContent: aws.String("pldi:step dump\nline-a\n"),
+			},
+			{
+				Status:                types.CommandInvocationStatusSuccess,
+				StandardOutputContent: aws.String("pldi:step dump\nline-a\nline-b\n"),
+			},
+		},
+	}
+	var buf bytes.Buffer
+	_, err := SendAndWait(context.Background(), api, "i-1", "echo", Options{
+		PollEvery: time.Millisecond,
+		Timeout:   time.Second,
+		Progress:  &buf,
+		Verbose:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "pldi: remote-out: line-a") || !strings.Contains(out, "pldi: remote-out: line-b") {
+		t.Fatalf("verbose deltas missing: %q", out)
+	}
+}
+
+func TestSendAndWaitQuietSuppressesProgress(t *testing.T) {
+	api := &fakeSSM{
+		invocations: []*ssm.GetCommandInvocationOutput{{
+			Status:                types.CommandInvocationStatusSuccess,
+			StandardOutputContent: aws.String("pldi:step done\n"),
+		}},
+	}
+	var buf bytes.Buffer
+	_, err := SendAndWait(context.Background(), api, "i-1", "echo", Options{
+		PollEvery: time.Millisecond,
+		Timeout:   time.Second,
+		Progress:  &buf,
+		Quiet:     true,
+		Verbose:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("quiet should suppress progress: %q", buf.String())
 	}
 }

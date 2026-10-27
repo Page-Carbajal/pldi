@@ -74,6 +74,7 @@ func TestRunDryRunNoAWSSideEffects(t *testing.T) {
 	ssmAPI := &snapSSM{}
 	s3api := &snapS3{}
 	out := &bytes.Buffer{}
+	progress := &bytes.Buffer{}
 	err := Run(context.Background(), snapEC2{}, ssmAPI, s3api, RunOptions{
 		IDOrName: "i-123",
 		Bucket:   "b",
@@ -81,6 +82,7 @@ func TestRunDryRunNoAWSSideEffects(t *testing.T) {
 		OutDir:   dir,
 		DryRun:   true,
 		Stdout:   out,
+		Progress: progress,
 		Now:      func() time.Time { return time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC) },
 	})
 	if err != nil {
@@ -91,6 +93,37 @@ func TestRunDryRunNoAWSSideEffects(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "my-site/2026-01-02-150405") {
 		t.Fatalf("prefix missing: %s", out.String())
+	}
+	if !strings.Contains(progress.String(), "pldi: resolving") {
+		t.Fatalf("expected phase banner: %q", progress.String())
+	}
+}
+
+func TestRunQuietSuppressesPhases(t *testing.T) {
+	dir := t.TempDir()
+	progress := &bytes.Buffer{}
+	out := &bytes.Buffer{}
+	err := Run(context.Background(), snapEC2{}, &snapSSM{}, &snapS3{}, RunOptions{
+		IDOrName: "i-123",
+		Bucket:   "b",
+		Prefix:   "p",
+		WPRoot:   "/bitnami/wordpress",
+		OutDir:   dir,
+		Force:    true,
+		Quiet:    true,
+		Timeout:  time.Minute,
+		Stdout:   out,
+		Progress: progress,
+		Now:      time.Now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress.Len() != 0 {
+		t.Fatalf("quiet progress=%q", progress.String())
+	}
+	if !strings.Contains(out.String(), "instance:") {
+		t.Fatalf("summary missing: %q", out.String())
 	}
 }
 

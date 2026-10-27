@@ -26,6 +26,8 @@ type RunOptions struct {
 	Timeout  time.Duration
 	Force    bool
 	DryRun   bool
+	Verbose  bool
+	Quiet    bool
 	Progress io.Writer
 	Stdout   io.Writer
 	Now      func() time.Time
@@ -39,10 +41,21 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
+	if opts.Progress == nil {
+		opts.Progress = io.Discard
+	}
 	if opts.OutDir == "" {
 		opts.OutDir = "."
 	}
 
+	logf := func(format string, args ...any) {
+		if opts.Quiet {
+			return
+		}
+		fmt.Fprintf(opts.Progress, format+"\n", args...)
+	}
+
+	logf("pldi: resolving %s", opts.IDOrName)
 	inst, err := instances.Resolve(ctx, ec2, opts.IDOrName)
 	if err != nil {
 		return err
@@ -70,11 +83,14 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 		prefix = config.DefaultPrefix(name, inst.InstanceID, ts)
 	}
 
+	logf("pldi: instance %s (%s); prefix=%s; out=%s; bucket=%s", inst.Name, inst.InstanceID, prefix, opts.OutDir, opts.Bucket)
+
 	script, err := RenderRemoteScript(ScriptParams{
 		Bucket:  opts.Bucket,
 		Prefix:  prefix,
 		WPRoot:  opts.WPRoot,
 		Exclude: opts.Exclude,
+		Verbose: opts.Verbose,
 	})
 	if err != nil {
 		return err
@@ -93,22 +109,30 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 		return nil
 	}
 
+	logf("pldi: sending SSM command")
 	start := opts.Now()
 	res, err := ssmrun.SendAndWait(ctx, ssmAPI, inst.InstanceID, script, ssmrun.Options{
 		Timeout:   opts.Timeout,
 		PollEvery: 2 * time.Second,
 		Progress:  opts.Progress,
+		Verbose:   opts.Verbose,
+		Quiet:     opts.Quiet,
 	})
 	if err != nil {
 		if res.Stderr != "" {
 			fmt.Fprintln(opts.Progress, res.Stderr)
 		}
+		if opts.Verbose && res.Stdout != "" {
+			fmt.Fprintln(opts.Progress, res.Stdout)
+		}
 		return err
 	}
 
+	logf("pldi: downloading content.zip")
 	if err := download.Object(ctx, s3api, opts.Bucket, prefix+"/content.zip", contentPath); err != nil {
 		return err
 	}
+	logf("pldi: downloading db.sql")
 	if err := download.Object(ctx, s3api, opts.Bucket, prefix+"/db.sql", dbPath); err != nil {
 		return err
 	}

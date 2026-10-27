@@ -12,10 +12,10 @@ import (
 
 func newWPSnapshotCmd(app *App) *cobra.Command {
 	var (
-		bucket, prefix, wpRoot, out string
-		timeoutStr                  string
-		exclude                     []string
-		force, dryRun               bool
+		bucket, prefix, wpRoot, out   string
+		timeoutStr                    string
+		exclude                       []string
+		force, dryRun, verbose, quiet bool
 	)
 
 	cmd := &cobra.Command{
@@ -73,6 +73,10 @@ func newWPSnapshotCmd(app *App) *cobra.Command {
 				prefixVal = prefix
 			}
 
+			if verbose && quiet {
+				return fmt.Errorf("cannot use --verbose and --quiet together")
+			}
+
 			return snapshot.Run(cmd.Context(), app.EC2, app.SSM, app.S3, snapshot.RunOptions{
 				IDOrName: args[0],
 				Bucket:   settings.Bucket,
@@ -83,6 +87,8 @@ func newWPSnapshotCmd(app *App) *cobra.Command {
 				Timeout:  timeout,
 				Force:    force,
 				DryRun:   dryRun,
+				Verbose:  verbose,
+				Quiet:    quiet,
 				Progress: cmd.ErrOrStderr(),
 				Stdout:   cmd.OutOrStdout(),
 			})
@@ -97,6 +103,8 @@ func newWPSnapshotCmd(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&timeoutStr, "timeout", "", "max time for the remote command (e.g. 30m)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing local content.zip / db.sql")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print remote script and paths without calling AWS")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "stream remote stdout/stderr and list zip contents")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress progress; errors and summary only")
 
 	return cmd
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/punchlistdigital/pldi/internal/awsx"
@@ -84,6 +85,11 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 	}
 
 	logf("pldi: instance %s (%s); prefix=%s; out=%s; bucket=%s", inst.Name, inst.InstanceID, prefix, opts.OutDir, opts.Bucket)
+	if len(opts.Exclude) == 0 {
+		logf("pldi: excludes: (none)")
+	} else {
+		logf("pldi: excludes: %s", strings.Join(opts.Exclude, ", "))
+	}
 
 	script, err := RenderRemoteScript(ScriptParams{
 		Bucket:  opts.Bucket,

@@ -105,12 +105,20 @@ echo "pldi:step dump"
 rm -f "$DEFAULTS_FILE"
 
 echo "pldi:step zip"
-FIND_EXCLUDES=()
+# Prefer find -prune + zip -@ over zip -x: Info-ZIP -x wildcards are easy to get
+# wrong on some platforms, and * does not cross directory boundaries.
+FIND_ARGS=(wp-content)
 if ((${#EXCLUDE_ARGS[@]})); then
+  echo "pldi:zip-excludes ${#EXCLUDE_ARGS[@]} paths"
   for ex in "${EXCLUDE_ARGS[@]}"; do
-    FIND_EXCLUDES+=(-path "wp-content/${ex}" -prune -o)
+    echo "pldi:zip-exclude ${ex}"
+    FIND_ARGS+=(-path "wp-content/${ex}" -prune -o)
   done
+else
+  echo "pldi:zip-excludes 0 paths"
 fi
+FIND_ARGS+=(-type f -print)
+
 (
   cd "$WP_ROOT"
   echo "pldi:zip-summary top-level:"
@@ -120,26 +128,15 @@ fi
       echo "pldi:zip-summary dir ${entry}"
     done
   fi
-  if ((${#FIND_EXCLUDES[@]})); then
-    FILE_COUNT="$(find wp-content "${FIND_EXCLUDES[@]}" -type f -print 2>/dev/null | wc -l | tr -d ' ')"
-  else
-    FILE_COUNT="$(find wp-content -type f -print 2>/dev/null | wc -l | tr -d ' ')"
-  fi
+  FILE_COUNT="$(find "${FIND_ARGS[@]}" 2>/dev/null | wc -l | tr -d ' ')"
   echo "pldi:zip-summary files=${FILE_COUNT}"
-)
-{{if .Verbose}}
-ZIP_ARGS=(-r "${WORKDIR}/content.zip" wp-content)
-{{else}}
-ZIP_ARGS=(-rq "${WORKDIR}/content.zip" wp-content)
-{{end}}
-if ((${#EXCLUDE_ARGS[@]})); then
-  for ex in "${EXCLUDE_ARGS[@]}"; do
-    ZIP_ARGS+=(-x "wp-content/${ex}/*" "wp-content/${ex}")
-  done
-fi
-(
-  cd "$WP_ROOT"
-  zip "${ZIP_ARGS[@]}"
+
+  # zip -@ reads paths from stdin; -0 for binary-safe names where supported.
+  {{if .Verbose}}
+  find "${FIND_ARGS[@]}" 2>/dev/null | zip -r "${WORKDIR}/content.zip" -@
+  {{else}}
+  find "${FIND_ARGS[@]}" 2>/dev/null | zip -rq "${WORKDIR}/content.zip" -@
+  {{end}}
 )
 
 echo "pldi:step upload"

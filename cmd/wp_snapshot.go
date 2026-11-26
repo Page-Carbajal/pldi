@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/punchlistdigital/pldi/internal/instances"
 	"github.com/punchlistdigital/pldi/internal/snapshot"
 )
 
@@ -19,26 +18,10 @@ func newWPSnapshotCmd(app *App) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "ec2:wp-snapshot <instance-id|name>",
-		Short: "Snapshot wp-content and database from an EC2 WordPress instance",
-		Args:  cobra.ExactArgs(1),
-		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			if len(args) != 0 || app.EC2 == nil {
-				return nil, cobra.ShellCompDirectiveNoFileComp
-			}
-			list, err := instances.List(cmd.Context(), app.EC2, instances.ListOptions{})
-			if err != nil {
-				return nil, cobra.ShellCompDirectiveError
-			}
-			var out []string
-			for _, inst := range list {
-				out = append(out, inst.InstanceID)
-				if inst.Name != "-" {
-					out = append(out, inst.Name)
-				}
-			}
-			return out, cobra.ShellCompDirectiveNoFileComp
-		},
+		Use:               "ec2:wp-snapshot <instance-id|name>",
+		Short:             "Snapshot wp-content and database from an EC2 WordPress instance",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: instanceArgCompletion(app),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flags := map[string]string{}
 			excludeSet := cmd.Flags().Changed("exclude")

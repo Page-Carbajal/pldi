@@ -49,12 +49,7 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 		opts.OutDir = "."
 	}
 
-	logf := func(format string, args ...any) {
-		if opts.Quiet {
-			return
-		}
-		fmt.Fprintf(opts.Progress, format+"\n", args...)
-	}
+	logf := newLogf(opts.Progress, opts.Quiet)
 
 	logf("pldi: resolving %s", opts.IDOrName)
 	inst, err := instances.Resolve(ctx, ec2, opts.IDOrName)
@@ -64,24 +59,13 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 
 	contentPath := filepath.Join(opts.OutDir, "content.zip")
 	dbPath := filepath.Join(opts.OutDir, "db.sql")
-	if !opts.Force {
-		for _, p := range []string{contentPath, dbPath} {
-			if _, err := os.Stat(p); err == nil {
-				return fmt.Errorf("%s already exists (use --force to overwrite)", p)
-			} else if !os.IsNotExist(err) {
-				return err
-			}
-		}
+	if err := refuseExisting([]string{contentPath, dbPath}, opts.Force); err != nil {
+		return err
 	}
 
 	prefix := opts.Prefix
 	if prefix == "" {
-		name := inst.Name
-		if name == "-" {
-			name = ""
-		}
-		ts := opts.Now().UTC().Format("2006-01-02-150405")
-		prefix = config.DefaultPrefix(name, inst.InstanceID, ts)
+		prefix = config.DefaultPrefix(inst.Name, inst.InstanceID, timestamp(opts.Now))
 	}
 
 	logf("pldi: instance %s (%s); prefix=%s; out=%s; bucket=%s", inst.Name, inst.InstanceID, prefix, opts.OutDir, opts.Bucket)
@@ -125,12 +109,7 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 		Quiet:     opts.Quiet,
 	})
 	if err != nil {
-		if res.Stderr != "" {
-			fmt.Fprintln(opts.Progress, res.Stderr)
-		}
-		if opts.Verbose && res.Stdout != "" {
-			fmt.Fprintln(opts.Progress, res.Stdout)
-		}
+		reportSSMFailure(opts.Progress, opts.Verbose, res)
 		return err
 	}
 
@@ -163,4 +142,44 @@ func Run(ctx context.Context, ec2 awsx.EC2API, ssmAPI awsx.SSMAPI, s3api awsx.S3
 	fmt.Fprintf(opts.Stdout, "local: %s (%d bytes)\n", dbPath, dbInfo.Size())
 	fmt.Fprintf(opts.Stdout, "duration: %s\n", elapsed.Round(time.Second))
 	return nil
+}
+
+// newLogf returns a progress logger that is silent when quiet is set.
+func newLogf(progress io.Writer, quiet bool) func(string, ...any) {
+	return func(format string, args ...any) {
+		if quiet {
+			return
+		}
+		fmt.Fprintf(progress, format+"\n", args...)
+	}
+}
+
+// refuseExisting fails when any path exists, unless force is set.
+func refuseExisting(paths []string, force bool) error {
+	if force {
+		return nil
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return fmt.Errorf("%s already exists (use --force to overwrite)", p)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// timestamp formats now() in UTC as YYYY-MM-DD-HHMMSS.
+func timestamp(now func() time.Time) string {
+	return now().UTC().Format("2006-01-02-150405")
+}
+
+// reportSSMFailure echoes remote stderr (and stdout when verbose) after a failed command.
+func reportSSMFailure(progress io.Writer, verbose bool, res ssmrun.Result) {
+	if res.Stderr != "" {
+		fmt.Fprintln(progress, res.Stderr)
+	}
+	if verbose && res.Stdout != "" {
+		fmt.Fprintln(progress, res.Stdout)
+	}
 }

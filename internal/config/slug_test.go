@@ -32,3 +32,19 @@ func TestDefaultPrefix(t *testing.T) {
 		t.Fatalf("fallback got %q want %q", got, want)
 	}
 }
+
+func TestInstanceSlug(t *testing.T) {
+	tests := []struct {
+		name, id, want string
+	}{
+		{"Gelinas HVAC", "i-abc", "gelinas-hvac"},
+		{"", "i-abc", "i-abc"},
+		{"-", "i-abc", "i-abc"},
+		{"@@@", "i-abc", "i-abc"},
+	}
+	for _, tt := range tests {
+		if got := InstanceSlug(tt.name, tt.id); got != tt.want {
+			t.Errorf("InstanceSlug(%q, %q)=%q want %q", tt.name, tt.id, got, tt.want)
+		}
+	}
+}

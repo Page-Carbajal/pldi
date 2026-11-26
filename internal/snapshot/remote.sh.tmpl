@@ -4,7 +4,9 @@ set -euo pipefail
 BUCKET={{printf "%q" .Bucket}}
 PREFIX={{printf "%q" .Prefix}}
 WP_ROOT={{printf "%q" .WPRoot}}
-{{if .Exclude}}
+DB_FILE={{printf "%q" .DBFile}}
+{{if .DBOnly}}
+{{- else if .Exclude}}
 EXCLUDE_ARGS=(
 {{- range .Exclude}}
   {{printf "%q" .}}
@@ -20,10 +22,12 @@ trap cleanup EXIT
 
 echo "pldi:step preflight"
 
+{{- if not .DBOnly}}
 if ! command -v zip >/dev/null 2>&1; then
   echo "zip is not installed on the instance" >&2
   exit 1
 fi
+{{- end}}
 if ! command -v aws >/dev/null 2>&1; then
   echo "aws CLI is not installed on the instance" >&2
   exit 1
@@ -101,9 +105,9 @@ fi
 echo "pldi:step dump"
 "$DUMP_BIN" --defaults-extra-file="$DEFAULTS_FILE" \
   --single-transaction --quick --default-character-set=utf8mb4 \
-  "$DB_NAME" > "${WORKDIR}/db.sql"
+  "$DB_NAME" > "${WORKDIR}/${DB_FILE}"
 rm -f "$DEFAULTS_FILE"
-
+{{if not .DBOnly}}
 echo "pldi:step zip"
 # Prefer find -prune + zip -@ over zip -x: Info-ZIP -x wildcards are easy to get
 # wrong on some platforms, and * does not cross directory boundaries.
@@ -138,13 +142,19 @@ FIND_ARGS+=(-type f -print)
   find "${FIND_ARGS[@]}" 2>/dev/null | zip -rq "${WORKDIR}/content.zip" -@
   {{end}}
 )
-
+{{end}}
 echo "pldi:step upload"
+{{- if not .DBOnly}}
 aws s3 cp "${WORKDIR}/content.zip" "s3://${BUCKET}/${PREFIX}/content.zip"
-aws s3 cp "${WORKDIR}/db.sql" "s3://${BUCKET}/${PREFIX}/db.sql"
+{{- end}}
+aws s3 cp "${WORKDIR}/${DB_FILE}" "s3://${BUCKET}/${PREFIX}/${DB_FILE}"
 
+{{if not .DBOnly -}}
 CONTENT_SIZE="$(wc -c < "${WORKDIR}/content.zip" | tr -d ' ')"
-DB_SIZE="$(wc -c < "${WORKDIR}/db.sql" | tr -d ' ')"
+{{end -}}
+DB_SIZE="$(wc -c < "${WORKDIR}/${DB_FILE}" | tr -d ' ')"
 echo "pldi:step done"
+{{- if not .DBOnly}}
 echo "pldi:size content.zip=${CONTENT_SIZE}"
-echo "pldi:size db.sql=${DB_SIZE}"
+{{- end}}
+echo "pldi:size ${DB_FILE}=${DB_SIZE}"

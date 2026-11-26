@@ -31,11 +31,20 @@ func Slugify(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// DefaultPrefix returns <slug>/<timestamp> or <instanceID>/<timestamp> when slug is empty.
-func DefaultPrefix(nameOrEmpty, instanceID, timestamp string) string {
+// InstanceSlug returns the slugified Name tag, or instanceID when the name is
+// empty, "-" (the no-Name sentinel used by instances.List), or slugifies to nothing.
+func InstanceSlug(nameOrEmpty, instanceID string) string {
+	if nameOrEmpty == "-" {
+		nameOrEmpty = ""
+	}
 	slug := Slugify(nameOrEmpty)
 	if slug == "" {
-		slug = instanceID
+		return instanceID
 	}
-	return slug + "/" + timestamp
+	return slug
+}
+
+// DefaultPrefix returns <slug>/<timestamp> or <instanceID>/<timestamp> when slug is empty.
+func DefaultPrefix(nameOrEmpty, instanceID, timestamp string) string {
+	return InstanceSlug(nameOrEmpty, instanceID) + "/" + timestamp
 }

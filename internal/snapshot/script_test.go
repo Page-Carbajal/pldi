@@ -64,31 +64,50 @@ func TestRenderRemoteScriptVerboseZip(t *testing.T) {
 	}
 }
 
-func TestBashN(t *testing.T) {
+func TestRenderRemoteScriptDBOnly(t *testing.T) {
 	script, err := RenderRemoteScript(ScriptParams{
 		Bucket: "b",
-		Prefix: "p",
+		Prefix: "my-site",
 		WPRoot: "/bitnami/wordpress",
+		DBOnly: true,
+		DBFile: "db-2026-01-01-000000.sql",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "remote.sh")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
+	for _, want := range []string{
+		"pldi:step dump",
+		"pldi:step upload",
+		"pldi:step done",
+		`DB_FILE="db-2026-01-01-000000.sql"`,
+		`"s3://${BUCKET}/${PREFIX}/${DB_FILE}"`,
+		"--defaults-extra-file",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("db-only script missing %q", want)
+		}
 	}
-	cmd := exec.Command("bash", "-n", path)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("bash -n: %v\n%s", err, out)
+	for _, bad := range []string{"pldi:step zip", "zip ", "content.zip", "CONTENT_SIZE"} {
+		if strings.Contains(script, bad) {
+			t.Fatalf("db-only script contains %q", bad)
+		}
 	}
 }
 
-func TestShellcheck(t *testing.T) {
-	if _, err := exec.LookPath("shellcheck"); err != nil {
-		t.Skip("shellcheck not installed")
+func TestRenderRemoteScriptDefaultDBFile(t *testing.T) {
+	script, err := RenderRemoteScript(ScriptParams{Bucket: "b", Prefix: "p", WPRoot: "/bitnami/wordpress"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	script, err := RenderRemoteScript(ScriptParams{
+	if !strings.Contains(script, `DB_FILE="db.sql"`) {
+		t.Fatalf("default DB_FILE missing: %s", script)
+	}
+}
+
+// scriptVariants renders the full and DB-only scripts for shell-level checks.
+func scriptVariants(t *testing.T) map[string]string {
+	t.Helper()
+	full, err := RenderRemoteScript(ScriptParams{
 		Bucket:  "b",
 		Prefix:  "p/q",
 		WPRoot:  "/bitnami/wordpress",
@@ -97,14 +116,51 @@ func TestShellcheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "remote.sh")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+	dbOnly, err := RenderRemoteScript(ScriptParams{
+		Bucket: "b",
+		Prefix: "p",
+		WPRoot: "/bitnami/wordpress",
+		DBOnly: true,
+		DBFile: "db-2026-01-01-000000.sql",
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("shellcheck", "-x", path)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("shellcheck: %v\n%s", err, out)
+	return map[string]string{"full": full, "db_only": dbOnly}
+}
+
+func TestBashN(t *testing.T) {
+	for name, script := range scriptVariants(t) {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "remote.sh")
+			if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", "-n", path)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("bash -n: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestShellcheck(t *testing.T) {
+	if _, err := exec.LookPath("shellcheck"); err != nil {
+		t.Skip("shellcheck not installed")
+	}
+	for name, script := range scriptVariants(t) {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "remote.sh")
+			if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("shellcheck", "-x", path)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("shellcheck: %v\n%s", err, out)
+			}
+		})
 	}
 }
 

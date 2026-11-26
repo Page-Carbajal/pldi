@@ -74,6 +74,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	root.AddCommand(newStatusCmd(app))
 	root.AddCommand(newEC2InstancesCmd(app))
 	root.AddCommand(newWPSnapshotCmd(app))
+	root.AddCommand(newDBSnapshotCmd(app))
 
 	return root
 }

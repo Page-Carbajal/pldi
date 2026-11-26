@@ -1,6 +1,6 @@
 # pldi
 
-CLI to snapshot a live Bitnami WordPress site on EC2 via SSM: zip `wp-content`, dump the database, stage both in S3, and download `content.zip` + `db.sql` into your project directory.
+CLI to snapshot a live Bitnami WordPress site on EC2 via SSM. `ec2:wp-snapshot` zips `wp-content` and dumps the database, stages both in S3, and downloads `content.zip` + `db.sql` into your project directory. `ec2:db-snapshot` does the database only.
 
 ## Install
 
@@ -25,9 +25,11 @@ pldi ec2:instances list
 pldi ec2:wp-snapshot i-05e6a35c06aaf677b
 # or by Name tag:
 pldi ec2:wp-snapshot trinityac
+# database only:
+pldi ec2:db-snapshot gelinashvac
 ```
 
-After a successful snapshot, the current directory contains `content.zip` and `db.sql`. Importing into DDEV (or similar) is left to you.
+After a successful `ec2:wp-snapshot`, the current directory contains `content.zip` and `db.sql`; `ec2:db-snapshot` writes only `db.sql`. Importing into DDEV (or similar) is left to you.
 
 ## Configuration
 
@@ -49,7 +51,7 @@ See [`pldi.example.yaml`](pldi.example.yaml) and [`.env.example`](.env.example).
 | `exclude` | | | list of `wp-content` subpaths to skip |
 | `timeout` | `PLDI_TIMEOUT` | `30m` | remote command timeout |
 
-`--prefix` is **flag-only** (per-run). If omitted, pldi uses `<slugified-Name>/<YYYY-MM-DD-HHMMSS>` (or the instance ID when Name is missing).
+`--prefix` is **flag-only** (per-run). For `ec2:wp-snapshot` it is the full key prefix and defaults to `<slug>/<YYYY-MM-DD-HHMMSS>`; for `ec2:db-snapshot` it is the S3 folder and defaults to `<slug>`. `<slug>` is the slugified `Name` tag, or the instance ID when `Name` is missing.
 
 AWS access keys are **not** accepted in pldi config; use the standard AWS credential chain.
 
@@ -73,6 +75,14 @@ Progress (stderr by default):
 - Remote step markers and a zip summary (top-level dirs + file count)
 - `--verbose` / `-v` also streams remote stdout/stderr and lists zip contents
 - `--quiet` / `-q` suppresses progress (errors + final summary only)
+
+### `pldi ec2:db-snapshot <instance-id|name>`
+
+Dumps only the database (no `wp-content` zip). Stages the dump at `s3://<bucket>/<slug>/db-<YYYY-MM-DD-HHMMSS>.sql` and downloads it to `<out>/db.sql`.
+
+Flags: `--bucket`, `--prefix` (S3 folder, default `<slug>`), `--wp-root`, `--out`, `--timeout`, `--force`, `--dry-run`, `--verbose`/`-v`, `--quiet`/`-q`.
+
+Progress and the final summary behave like `ec2:wp-snapshot`. Refuses to overwrite an existing `db.sql` unless `--force` is set.
 
 ## IAM
 
